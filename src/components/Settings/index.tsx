@@ -8,6 +8,12 @@ interface SettingsData {
   ai_base_url: string
   ai_api_key: string
   ai_model: string
+  rag_source: string
+  rag_retrieval_prompt: string
+  rag_events_prompt: string
+  rag_events_prompt_enabled: string
+  rag_both_prompt: string
+  rag_both_prompt_enabled: string
 }
 
 // ── Base card & row components ────────────────────────────────────────────────
@@ -120,6 +126,36 @@ function InlineInput({
         transition: 'border-color 150ms',
       }}
       type={type}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+    />
+  )
+}
+
+function InlineTextarea({
+  placeholder,
+  value,
+  onChange,
+}: {
+  placeholder?: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  const [focused, setFocused] = useState(false)
+  return (
+    <textarea
+      className="no-drag text-xs rounded-lg px-3 py-2 outline-none resize-none w-full"
+      style={{
+        minHeight: '88px',
+        background: 'var(--bg-elevated)',
+        border: `1px solid ${focused ? 'var(--accent)' : 'var(--border)'}`,
+        color: 'var(--text-primary)',
+        transition: 'border-color 150ms',
+        lineHeight: '1.6',
+      }}
       placeholder={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -402,6 +438,109 @@ function AISection({
           />
         </Row>
       </Card>
+
+      <Card title="RAG 知识库">
+        <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+          {[
+            {
+              value: 'messages',
+              label: '聊天记录',
+              desc: '注入原始消息，适合精确查找',
+              hasPrompt: false,
+            },
+            {
+              value: 'events',
+              label: '日志记录',
+              desc: 'AI 摘要分析，效率更高',
+              hasPrompt: true,
+              promptKey: 'rag_events_prompt' as const,
+              enabledKey: 'rag_events_prompt_enabled' as const,
+            },
+            {
+              value: 'both',
+              label: '聊天 + 日志',
+              desc: '双数据源，覆盖更全面',
+              hasPrompt: true,
+              promptKey: 'rag_both_prompt' as const,
+              enabledKey: 'rag_both_prompt_enabled' as const,
+            },
+          ].map((opt) => {
+            const active = settings.rag_source === opt.value
+            const promptEnabled = opt.hasPrompt && settings[opt.enabledKey!] === '1'
+            return (
+              <div key={opt.value}>
+                {/* Row header */}
+                <button
+                  onClick={() => setSettings(s => ({ ...s, rag_source: opt.value }))}
+                  className="no-drag w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer"
+                  style={{ background: active ? 'var(--accent-glow)' : 'transparent', transition: 'background 150ms' }}
+                  onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.03)' }}
+                  onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = active ? 'var(--accent-glow)' : 'transparent' }}
+                >
+                  {/* Radio dot */}
+                  <div
+                    className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                    style={{
+                      border: `2px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                      background: active ? 'var(--accent)' : 'transparent',
+                      transition: 'all 150ms',
+                    }}
+                  >
+                    {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium" style={{ color: active ? 'var(--accent)' : 'var(--text-primary)' }}>
+                      {opt.label}
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{opt.desc}</div>
+                  </div>
+                  {active && opt.hasPrompt && (
+                    <svg
+                      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                      strokeLinecap="round" strokeLinejoin="round"
+                      className="w-3.5 h-3.5 shrink-0"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  )}
+                </button>
+
+                {/* Expandable prompt config */}
+                {active && opt.hasPrompt && (
+                  <div className="px-4 pb-4" style={{ borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.01)' }}>
+                    {/* Custom prompt toggle */}
+                    <div className="flex items-center justify-between pt-3 mb-3">
+                      <div>
+                        <div className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>个性化检索提示词</div>
+                        <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                          {promptEnabled ? '已启用自定义规则' : '使用默认规则'}
+                        </div>
+                      </div>
+                      <Toggle
+                        checked={promptEnabled}
+                        onChange={() =>
+                          setSettings(s => ({
+                            ...s,
+                            [opt.enabledKey!]: s[opt.enabledKey!] === '1' ? '0' : '1',
+                          }))
+                        }
+                      />
+                    </div>
+                    {promptEnabled && (
+                      <InlineTextarea
+                        placeholder={`默认：你是一个智能助手，拥有用户的微信${opt.value === 'events' ? '日志分析' : '聊天'}数据作为知识库。请根据知识库内容回答用户的问题，可以引用具体内容。如果知识库中没有相关信息，请直接说明。`}
+                        value={settings[opt.promptKey!]}
+                        onChange={(v) => setSettings(s => ({ ...s, [opt.promptKey!]: v }))}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </Card>
       <button
         onClick={onSave}
         className="no-drag w-full text-sm font-medium rounded-xl py-2.5 cursor-pointer flex items-center justify-center gap-2 transition-colors"
@@ -473,7 +612,17 @@ function DataSection({ onClear, clearing }: { onClear: () => void; clearing: boo
 
 export default function SettingsPage() {
   const [section, setSection] = useState<Section>('general')
-  const [settings, setSettings] = useState<SettingsData>({ ai_base_url: '', ai_api_key: '', ai_model: '' })
+  const [settings, setSettings] = useState<SettingsData>({
+    ai_base_url: '',
+    ai_api_key: '',
+    ai_model: '',
+    rag_source: 'messages',
+    rag_retrieval_prompt: '',
+    rag_events_prompt: '',
+    rag_events_prompt_enabled: '0',
+    rag_both_prompt: '',
+    rag_both_prompt_enabled: '0',
+  })
   const [saved, setSaved] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [modelPreset, setModelPreset] = useState('custom')
@@ -505,6 +654,12 @@ export default function SettingsPage() {
       ai_base_url: settings.ai_base_url,
       ai_api_key: settings.ai_api_key,
       ai_model: settings.ai_model,
+      rag_source: settings.rag_source,
+      rag_retrieval_prompt: settings.rag_retrieval_prompt,
+      rag_events_prompt: settings.rag_events_prompt,
+      rag_events_prompt_enabled: settings.rag_events_prompt_enabled,
+      rag_both_prompt: settings.rag_both_prompt,
+      rag_both_prompt_enabled: settings.rag_both_prompt_enabled,
     })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)

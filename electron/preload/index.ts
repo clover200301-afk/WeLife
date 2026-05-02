@@ -100,6 +100,9 @@ const api = {
   getMessageCount: (chatId: string): Promise<{ success: boolean; data?: number }> =>
     ipcRenderer.invoke('get-message-count', chatId),
 
+  getRagMessages: (chatId?: string, limit?: number): Promise<{ success: boolean; data?: Message[] }> =>
+    ipcRenderer.invoke('get-rag-messages', chatId, limit),
+
   fetchFullHistory: (chatId: string, chatName: string): Promise<{ success: boolean; data?: { newCount: number }; error?: string }> =>
     ipcRenderer.invoke('fetch-full-history', chatId, chatName),
 

@@ -168,6 +168,18 @@ export function getMessages(chatId: string, limit = 50, before?: number): Messag
   ).all(chatId, limit) as Message[]
 }
 
+export function getRecentMessages(chatId?: string, limit = 200): Message[] {
+  const db = getDb()
+  if (chatId) {
+    return db.prepare(
+      'SELECT * FROM messages WHERE chat_id = ? ORDER BY timestamp DESC LIMIT ?'
+    ).all(chatId, limit) as Message[]
+  }
+  return db.prepare(
+    'SELECT * FROM messages ORDER BY timestamp DESC LIMIT ?'
+  ).all(limit) as Message[]
+}
+
 export function getChatSenders(chatId: string): { sender: string; count: number }[] {
   return getDb().prepare(
     'SELECT sender, COUNT(*) as count FROM messages WHERE chat_id = ? GROUP BY sender ORDER BY count DESC'

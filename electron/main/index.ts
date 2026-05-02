@@ -8,6 +8,7 @@ import {
   fetchAndStoreMessages,
   fetchFullHistory,
   getMessages,
+  getRecentMessages,
   searchMessages,
   getEvents,
   updateEvent,
@@ -195,7 +196,13 @@ ipcMain.handle('get-settings', async () => {
       data: {
         ai_base_url: getSetting('ai_base_url') ?? '',
         ai_api_key: getSetting('ai_api_key') ?? '',
-        ai_model: getSetting('ai_model') ?? ''
+        ai_model: getSetting('ai_model') ?? '',
+        rag_source: getSetting('rag_source') ?? 'messages',
+        rag_retrieval_prompt: getSetting('rag_retrieval_prompt') ?? '',
+        rag_events_prompt: getSetting('rag_events_prompt') ?? '',
+        rag_events_prompt_enabled: getSetting('rag_events_prompt_enabled') ?? '0',
+        rag_both_prompt: getSetting('rag_both_prompt') ?? '',
+        rag_both_prompt_enabled: getSetting('rag_both_prompt_enabled') ?? '0',
       }
     }
   } catch (e) {
@@ -426,6 +433,14 @@ ipcMain.handle('get-streak-contacts', async (_, minDays: number = 7) => {
 ipcMain.handle('get-message-count', async (_, chatId: string) => {
   try {
     return { success: true, data: getMessageCount(chatId) }
+  } catch (e) {
+    return { success: false, error: String(e) }
+  }
+})
+
+ipcMain.handle('get-rag-messages', async (_, chatId?: string, limit?: number) => {
+  try {
+    return { success: true, data: getRecentMessages(chatId, limit ?? 200) }
   } catch (e) {
     return { success: false, error: String(e) }
   }

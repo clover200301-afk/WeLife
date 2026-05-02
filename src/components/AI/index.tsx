@@ -1,7 +1,64 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import type { AIMessage, ChatAnalysis, ChatAnalysisJSON, Chat } from '../../types'
+import type { AIMessage, ChatAnalysis, ChatAnalysisJSON, Chat, Message } from '../../types'
 import { MODEL_PRESETS } from '../../utils/modelPresets'
 import { getAvatarColor, AVATAR_COLORS } from '../../utils/avatarColor'
+
+type RagSource = 'messages' | 'events' | 'both'
+
+const DEFAULT_RETRIEVAL_PROMPT =
+  '你是一个智能助手，拥有用户的微信聊天数据作为知识库。请根据知识库内容回答用户的问题，可以引用具体内容。如果知识库中没有相关信息，请直接说明。'
+
+const DEFAULT_EVENTS_PROMPT =
+  '你是一个智能助手，拥有用户的微信聊天日志分析数据作为知识库。请根据知识库内容回答用户的问题，可以引用具体摘要或分析结论。如果知识库中没有相关信息，请直接说明。'
+
+function buildRAGContext(
+  source: RagSource,
+  messages: Message[],
+  analyses: ChatAnalysis[],
+  eventsPrompt: string,
+  eventsPromptEnabled: boolean,
+  bothPrompt: string,
+  bothPromptEnabled: boolean,
+): string {
+  const parts: string[] = []
+
+  if ((source === 'messages' || source === 'both') && messages.length > 0) {
+    const msgText = messages
+      .slice(0, 200)
+      .map(m => {
+        const d = new Date(m.timestamp * 1000)
+        const time = `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+        return `[${time}] ${m.is_self ? '我' : m.sender}: ${m.content}`
+      })
+      .join('\n')
+    parts.push(`=== 聊天记录（共 ${messages.length} 条）===\n${msgText}`)
+  }
+
+  if ((source === 'events' || source === 'both') && analyses.length > 0) {
+    const analysisText = analyses
+      .slice(0, 50)
+      .map(a => {
+        try {
+          const j = JSON.parse(a.analysis_json.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()) as ChatAnalysisJSON
+          return `【${a.chat_name}】${j.time_range}\n摘要：${j.summary}\n话题：${j.topics.join('、')}\n要点：${j.key_points.slice(0, 3).join('；')}`
+        } catch {
+          return `【${a.chat_name}】${a.analysis_json.slice(0, 100)}`
+        }
+      })
+      .join('\n\n---\n\n')
+    parts.push(`=== 聊天日志分析（共 ${analyses.length} 条）===\n${analysisText}`)
+  }
+
+  if (parts.length === 0) return ''
+
+  let systemPrompt = DEFAULT_RETRIEVAL_PROMPT
+  if (source === 'events') {
+    systemPrompt = eventsPromptEnabled && eventsPrompt.trim() ? eventsPrompt.trim() : DEFAULT_EVENTS_PROMPT
+  } else if (source === 'both') {
+    systemPrompt = bothPromptEnabled && bothPrompt.trim() ? bothPrompt.trim() : DEFAULT_RETRIEVAL_PROMPT
+  }
+  return `${systemPrompt}\n\n${parts.join('\n\n')}`
+}
 
 interface DisplayMessage {
   role: 'user' | 'assistant' | 'system'
@@ -15,41 +72,135 @@ interface AnalyzedChat {
   latestAt: number
 }
 
-function buildRAGContext(analyses: ChatAnalysis[], chatId?: string): string {
-  const filtered = chatId ? analyses.filter(a => a.chat_id === chatId) : analyses
-  if (filtered.length === 0) return ''
-  const entries = filtered
-    .slice(0, 50)
-    .map(a => {
-      try {
-        const j = JSON.parse(a.analysis_json.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()) as ChatAnalysisJSON
-        return `【${a.chat_name}】${j.time_range}\n摘要：${j.summary}\n话题：${j.topics.join('、')}\n要点：${j.key_points.slice(0, 3).join('；')}`
-      } catch {
-        return `【${a.chat_name}】${a.analysis_json.slice(0, 100)}`
-      }
-    })
-    .join('\n\n---\n\n')
-  return `你是一个智能助手，拥有以下用户的微信聊天记录分析日志（共 ${filtered.length} 条）作为知识库：\n\n${entries}\n\n请根据以上知识库回答用户的问题，可以引用具体的聊天记录分析内容。`
-}
+function MarkdownText({ text, render = false }: { text: string; render?: boolean }) {
+  if (!render) {
+    return (
+      <p className="text-sm leading-relaxed whitespace-pre-wrap">{text}</p>
+    )
+  }
 
-function MarkdownText({ text }: { text: string }) {
+  // Parse inline: bold, italic, inline-code
+  function parseInline(raw: string): React.ReactNode[] {
+    const parts: React.ReactNode[] = []
+    const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+?)`)/g
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(raw)) !== null) {
+      if (m.index > last) parts.push(raw.slice(last, m.index))
+      if (m[2]) parts.push(<strong key={m.index}>{m[2]}</strong>)
+      else if (m[3]) parts.push(<em key={m.index}>{m[3]}</em>)
+      else if (m[4]) parts.push(
+        <code key={m.index} className="rounded px-1 py-0.5 text-xs font-mono" style={{ background: 'var(--bg-elevated)', color: 'var(--accent)', border: '1px solid var(--border)' }}>
+          {m[4]}
+        </code>
+      )
+      last = m.index + m[0].length
+    }
+    if (last < raw.length) parts.push(raw.slice(last))
+    return parts
+  }
+
   const lines = text.split('\n')
-  return (
-    <div className="space-y-1">
-      {lines.map((line, i) => {
-        if (line.startsWith('### ')) return <p key={i} className="text-xs font-bold mt-2 mb-1" style={{ color: 'var(--text-primary)' }}>{line.slice(4)}</p>
-        if (line.startsWith('## ')) return <p key={i} className="text-sm font-bold mt-2 mb-1" style={{ color: 'var(--text-primary)' }}>{line.slice(3)}</p>
-        if (line.startsWith('- ') || line.startsWith('• ')) return (
-          <p key={i} className="flex items-start gap-1.5 text-sm leading-relaxed">
-            <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />
-            <span>{line.slice(2)}</span>
-          </p>
-        )
-        if (line.trim() === '') return <div key={i} className="h-1" />
-        return <p key={i} className="text-sm leading-relaxed">{line}</p>
-      })}
-    </div>
-  )
+  const nodes: React.ReactNode[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Fenced code block
+    if (line.startsWith('```')) {
+      const lang = line.slice(3).trim()
+      const codeLines: string[] = []
+      i++
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i])
+        i++
+      }
+      nodes.push(
+        <div key={i} className="my-2 rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+          {lang && (
+            <div className="px-3 py-1 text-[10px] font-mono" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
+              {lang}
+            </div>
+          )}
+          <pre className="p-3 text-xs font-mono overflow-x-auto" style={{ background: 'rgba(0,0,0,0.2)', color: 'var(--text-primary)', lineHeight: '1.6' }}>
+            {codeLines.join('\n')}
+          </pre>
+        </div>
+      )
+      i++
+      continue
+    }
+
+    // HR
+    if (/^---+$/.test(line.trim())) {
+      nodes.push(<hr key={i} className="my-3" style={{ borderColor: 'var(--border)' }} />)
+      i++
+      continue
+    }
+
+    // H3
+    if (line.startsWith('### ')) {
+      nodes.push(<p key={i} className="text-xs font-bold mt-3 mb-1" style={{ color: 'var(--text-primary)' }}>{parseInline(line.slice(4))}</p>)
+      i++; continue
+    }
+    // H2
+    if (line.startsWith('## ')) {
+      nodes.push(<p key={i} className="text-sm font-bold mt-3 mb-1" style={{ color: 'var(--text-primary)' }}>{parseInline(line.slice(3))}</p>)
+      i++; continue
+    }
+    // H1
+    if (line.startsWith('# ')) {
+      nodes.push(<p key={i} className="text-base font-bold mt-3 mb-1" style={{ color: 'var(--text-primary)' }}>{parseInline(line.slice(2))}</p>)
+      i++; continue
+    }
+
+    // Blockquote
+    if (line.startsWith('> ')) {
+      nodes.push(
+        <div key={i} className="flex gap-2 my-1">
+          <div className="w-0.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />
+          <p className="text-sm leading-relaxed italic" style={{ color: 'var(--text-muted)' }}>{parseInline(line.slice(2))}</p>
+        </div>
+      )
+      i++; continue
+    }
+
+    // Numbered list
+    if (/^\d+\.\s/.test(line)) {
+      const numMatch = line.match(/^(\d+)\.\s(.*)/)!
+      nodes.push(
+        <p key={i} className="flex items-start gap-2 text-sm leading-relaxed my-0.5">
+          <span className="shrink-0 font-medium text-xs mt-0.5 min-w-[14px] text-right" style={{ color: 'var(--accent)' }}>{numMatch[1]}.</span>
+          <span>{parseInline(numMatch[2])}</span>
+        </p>
+      )
+      i++; continue
+    }
+
+    // Unordered list
+    if (line.startsWith('- ') || line.startsWith('• ')) {
+      nodes.push(
+        <p key={i} className="flex items-start gap-1.5 text-sm leading-relaxed my-0.5">
+          <span className="mt-2 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />
+          <span>{parseInline(line.slice(2))}</span>
+        </p>
+      )
+      i++; continue
+    }
+
+    // Blank line
+    if (line.trim() === '') {
+      nodes.push(<div key={i} className="h-1" />)
+      i++; continue
+    }
+
+    // Paragraph
+    nodes.push(<p key={i} className="text-sm leading-relaxed">{parseInline(line)}</p>)
+    i++
+  }
+
+  return <div className="space-y-0.5">{nodes}</div>
 }
 
 function ChatAvatar({ name, size = 40 }: { name: string; size?: number }) {
@@ -183,7 +334,7 @@ function AnalyzedChatList({
               <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>AI 助手</span>
             </div>
             <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
-              {analyses.length} 条聊天分析日志
+            {analyses.length} 条分析记录
             </div>
           </div>
         </button>
@@ -249,6 +400,18 @@ export default function AIPage() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
   const [sidebarSearch, setSidebarSearch] = useState('')
 
+  // RAG settings
+  const [ragSource, setRagSource] = useState<RagSource>('messages')
+  const [ragEventsPrompt, setRagEventsPrompt] = useState('')
+  const [ragEventsPromptEnabled, setRagEventsPromptEnabled] = useState(false)
+  const [ragBothPrompt, setRagBothPrompt] = useState('')
+  const [ragBothPromptEnabled, setRagBothPromptEnabled] = useState(false)
+  const [ragMessages, setRagMessages] = useState<Message[]>([])
+  const [ragSettingsLoaded, setRagSettingsLoaded] = useState(false)
+
+  // UI
+  const [markdownEnabled, setMarkdownEnabled] = useState(false)
+
   // Per-model API key management
   const [modelApiKey, setModelApiKey] = useState('')
   const [modelBaseUrl, setModelBaseUrl] = useState('')
@@ -259,6 +422,7 @@ export default function AIPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
+  // Load initial data
   useEffect(() => {
     const api = window.api
     if (!api) return
@@ -273,7 +437,6 @@ export default function AIPage() {
     } else {
       setLoadingAnalyses(false)
     }
-    // Pre-load key status for all presets
     if (typeof api.getModelConfig === 'function') {
       MODEL_PRESETS.filter(p => p.value !== 'custom').forEach(p => {
         api.getModelConfig(p.value).then(r => {
@@ -283,7 +446,31 @@ export default function AIPage() {
         }).catch(() => {})
       })
     }
+    // Load RAG settings
+    api.getSettings().then(r => {
+      if (r.success && r.data) {
+        const d = r.data as Record<string, string>
+        setRagSource((d.rag_source as RagSource) ?? 'messages')
+        setRagEventsPrompt(d.rag_events_prompt ?? '')
+        setRagEventsPromptEnabled(d.rag_events_prompt_enabled === '1')
+        setRagBothPrompt(d.rag_both_prompt ?? '')
+        setRagBothPromptEnabled(d.rag_both_prompt_enabled === '1')
+      }
+      setRagSettingsLoaded(true)
+    }).catch(() => setRagSettingsLoaded(true))
   }, [])
+
+  // Load RAG messages whenever chat or source changes
+  useEffect(() => {
+    if (!ragSettingsLoaded || ragSource === 'events') {
+      setRagMessages([])
+      return
+    }
+    if (typeof window.api.getRagMessages !== 'function') return
+    window.api.getRagMessages(selectedChatId ?? undefined, 200).then(r => {
+      if (r.success && r.data) setRagMessages(r.data)
+    }).catch(() => {})
+  }, [selectedChatId, ragSource, ragSettingsLoaded])
 
   // Load per-model key when model changes
   useEffect(() => {
@@ -373,7 +560,14 @@ export default function AIPage() {
     setMessages(newMessages)
     setStreaming(true)
 
-    const ragContext = buildRAGContext(analyses, selectedChatId ?? undefined)
+    const filteredAnalyses = selectedChatId
+      ? analyses.filter(a => a.chat_id === selectedChatId)
+      : analyses
+    const ragContext = buildRAGContext(
+      ragSource, ragMessages, filteredAnalyses,
+      ragEventsPrompt, ragEventsPromptEnabled,
+      ragBothPrompt, ragBothPromptEnabled,
+    )
     const apiMessages: AIMessage[] = [
       ...(ragContext ? [{ role: 'system' as const, content: ragContext }] : []),
       ...newMessages.filter(m => m.role !== 'system').map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
@@ -407,9 +601,21 @@ export default function AIPage() {
     setMessages([])
   }
 
-  const ragCount = selectedChatId
-    ? analyses.filter(a => a.chat_id === selectedChatId).length
-    : analyses.length
+  const filteredAnalyses = selectedChatId
+    ? analyses.filter(a => a.chat_id === selectedChatId)
+    : analyses
+
+  const ragCount = ragSource === 'messages'
+    ? ragMessages.length
+    : ragSource === 'events'
+      ? filteredAnalyses.length
+      : ragMessages.length + filteredAnalyses.length
+
+  const ragLabel = ragSource === 'messages'
+    ? `${ragMessages.length} 条聊天记录`
+    : ragSource === 'events'
+      ? `${filteredAnalyses.length} 条日志分析`
+      : `${ragMessages.length} 条消息 · ${filteredAnalyses.length} 条日志`
 
   const suggestionPrompts = currentChatName
     ? [
@@ -461,7 +667,7 @@ export default function AIPage() {
                 {currentChatName ? currentChatName : 'AI 助手'}
               </h2>
               <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                {loadingAnalyses ? '加载知识库...' : `${ragCount} 条聊天分析日志`}
+                {loadingAnalyses ? '加载知识库...' : ragLabel}
               </div>
             </div>
           </div>
@@ -481,6 +687,23 @@ export default function AIPage() {
                 RAG 已启用
               </div>
             )}
+
+            {/* Markdown render toggle */}
+            <button
+              onClick={() => setMarkdownEnabled(v => !v)}
+              className="no-drag text-xs rounded-lg px-2.5 py-1.5 cursor-pointer flex items-center gap-1.5"
+              style={{
+                background: markdownEnabled ? 'var(--accent-glow)' : 'var(--bg-elevated)',
+                border: `1px solid ${markdownEnabled ? 'rgba(59,130,246,0.35)' : 'var(--border)'}`,
+                color: markdownEnabled ? 'var(--accent)' : 'var(--text-muted)',
+              }}
+              title={markdownEnabled ? '关闭 Markdown 渲染' : '开启 Markdown 渲染'}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                <path d="M3 5h18M3 12h18M3 19h9"/><path d="M16 17l2 2 4-4"/>
+              </svg>
+              MD
+            </button>
 
             {/* Model selector */}
             <div className="relative">
@@ -619,8 +842,8 @@ export default function AIPage() {
                 </h3>
                 <p className="text-sm max-w-sm" style={{ color: 'var(--text-muted)' }}>
                   {ragCount > 0
-                    ? `已加载 ${ragCount} 条聊天记录分析，AI 可以基于这些内容回答问题`
-                    : '先在微信页面打开聊天，AI 会自动分析聊天记录并建立知识库'}
+                  ? `已加载 ${ragLabel}，AI 可以基于这些内容回答问题`
+                  : '先在微信页面打开聊天，AI 会自动分析聊天记录并建立知识库'}
                 </p>
               </div>
 
@@ -685,7 +908,7 @@ export default function AIPage() {
                       {msg.role === 'user' ? (
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                       ) : (
-                        <MarkdownText text={msg.content} />
+                        <MarkdownText text={msg.content} render={markdownEnabled} />
                       )}
                     </div>
                   </div>
