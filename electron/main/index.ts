@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'path'
 import { execSync } from 'child_process'
 import { is } from '@electron-toolkit/utils'
-import { getDb, getSetting, setSetting } from './db'
+import { getDb, getSetting, setSetting, getSecureSetting, setSecureSetting } from './db'
 import {
   fetchAndStoreSessions,
   fetchAndStoreMessages,
@@ -195,7 +195,7 @@ ipcMain.handle('get-settings', async () => {
       success: true,
       data: {
         ai_base_url: getSetting('ai_base_url') ?? '',
-        ai_api_key: getSetting('ai_api_key') ?? '',
+        ai_api_key: getSecureSetting('ai_api_key') ?? '',
         ai_model: getSetting('ai_model') ?? '',
         rag_source: getSetting('rag_source') ?? 'messages',
         rag_retrieval_prompt: getSetting('rag_retrieval_prompt') ?? '',
@@ -212,7 +212,10 @@ ipcMain.handle('get-settings', async () => {
 
 ipcMain.handle('save-settings', async (_, settings: Record<string, string>) => {
   try {
-    for (const [k, v] of Object.entries(settings)) setSetting(k, v)
+    for (const [k, v] of Object.entries(settings)) {
+      if (k === 'ai_api_key') setSecureSetting(k, v)
+      else setSetting(k, v)
+    }
     return { success: true }
   } catch (e) {
     return { success: false, error: String(e) }
@@ -460,7 +463,7 @@ ipcMain.handle('get-model-config', async (_, modelId: string) => {
     return {
       success: true,
       data: {
-        api_key: getSetting(`model_api_key_${modelId}`) ?? '',
+        api_key: getSecureSetting(`model_api_key_${modelId}`) ?? '',
         base_url: getSetting(`model_base_url_${modelId}`) ?? '',
       }
     }
@@ -471,7 +474,7 @@ ipcMain.handle('get-model-config', async (_, modelId: string) => {
 
 ipcMain.handle('save-model-config', async (_, modelId: string, api_key: string, base_url: string) => {
   try {
-    setSetting(`model_api_key_${modelId}`, api_key)
+    setSecureSetting(`model_api_key_${modelId}`, api_key)
     setSetting(`model_base_url_${modelId}`, base_url)
     return { success: true }
   } catch (e) {

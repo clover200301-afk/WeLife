@@ -1,11 +1,11 @@
 import https from 'https'
 import http from 'http'
-import { getSetting } from './db'
+import { getSetting, getSecureSetting } from './db'
 import type { AIConfig, AIMessage } from '../../src/types'
 
 export function getAIConfig(): AIConfig | null {
   const base_url = getSetting('ai_base_url')
-  const api_key = getSetting('ai_api_key')
+  const api_key = getSecureSetting('ai_api_key')
   const model = getSetting('ai_model')
   if (!base_url || !api_key || !model) return null
   return { base_url, api_key, model }

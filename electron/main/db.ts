@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
@@ -88,4 +88,25 @@ export function getSetting(key: string): string | null {
 
 export function setSetting(key: string, value: string): void {
   getDb().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value)
+}
+
+// Encrypted variants for sensitive values (API keys).
+// Uses Electron safeStorage → macOS Keychain / Windows DPAPI.
+// Stored in DB as "enc:<base64>". Falls back to plaintext for migration.
+export function getSecureSetting(key: string): string | null {
+  const raw = getSetting(key)
+  if (!raw) return null
+  if (!raw.startsWith('enc:')) return raw  // legacy plaintext, still readable
+  try {
+    const buf = Buffer.from(raw.slice(4), 'base64')
+    return safeStorage.decryptString(buf)
+  } catch {
+    return null
+  }
+}
+
+export function setSecureSetting(key: string, value: string): void {
+  if (!value) { setSetting(key, ''); return }
+  const encrypted = safeStorage.encryptString(value)
+  setSetting(key, 'enc:' + encrypted.toString('base64'))
 }
