@@ -43,7 +43,22 @@ WeLife 是一款运行在本地的 macOS 桌面应用，基于你的微信聊天
 
 ---
 
-## 快速开始
+## 下载安装（推荐）
+
+无需配置开发环境，直接下载安装包即可使用：
+
+| 平台 | 下载链接 |
+|------|----------|
+| macOS（Apple Silicon / M 系列） | [WeLife-1.0.0-arm64.dmg](https://github.com/clover200301-afk/WeLife/releases/download/v1.0.0/WeLife-1.0.0-arm64.dmg) |
+| macOS（Intel） | [WeLife-1.0.0.dmg](https://github.com/clover200301-afk/WeLife/releases/download/v1.0.0/WeLife-1.0.0.dmg) |
+
+> **macOS 安装提示：** 首次打开时若提示「无法验证开发者」，请前往「系统设置 → 隐私与安全性」，找到 WeLife 并点击「仍要打开」。
+
+也可以前往 [Releases 页面](https://github.com/clover200301-afk/WeLife/releases) 下载最新版本。
+
+---
+
+## 从源码运行
 
 ### 1. 克隆仓库
 
@@ -95,10 +110,11 @@ npm run dev
 ### 打包构建
 
 ```bash
-npm run build
+npm run dist:mac:fast   # macOS Apple Silicon（推荐）
+npm run dist:mac        # macOS 全架构
 ```
 
-产物输出到 `out/` 目录，可直接分发安装。
+产物输出到 `release/` 目录。
 
 ---
 

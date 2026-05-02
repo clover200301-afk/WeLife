@@ -1,5 +1,6 @@
 import { execSync } from 'child_process'
 import { getDb } from './db'
+import { getShellEnv } from './shell-env'
 import type { SessionItem, HistoryResult, Chat, Message } from '../../src/types'
 
 const WECHAT_CLI = 'wechat-cli'
@@ -8,7 +9,8 @@ const EVENT_GAP_MS = 30 * 60 * 1000 // 30 minutes
 function run(args: string): string {
   return execSync(`${WECHAT_CLI} ${args}`, {
     encoding: 'utf8',
-    maxBuffer: 10 * 1024 * 1024  // 10MB
+    maxBuffer: 10 * 1024 * 1024,
+    env: getShellEnv(),
   })
 }
 

@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { useTheme } from '../../store/theme'
 import { MODEL_PRESETS } from '../../utils/modelPresets'
 
-type Section = 'general' | 'appearance' | 'ai' | 'data'
+type Section = 'general' | 'wechat' | 'appearance' | 'ai' | 'data'
 
 interface SettingsData {
   ai_base_url: string
@@ -176,6 +176,16 @@ const NAV_ITEMS: { id: Section; label: string; color: string; icon: ReactNode }[
       <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4.5 h-4.5" style={{ width: 18, height: 18 }}>
         <circle cx="12" cy="12" r="3"/>
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'wechat',
+    label: '微信数据',
+    color: '#07C160',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18 }}>
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
       </svg>
     ),
   },
@@ -563,6 +573,141 @@ function AISection({
   )
 }
 
+function CodeBlock({ children }: { children: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="flex items-center justify-between rounded-lg px-3 py-2.5 mt-2 font-mono text-xs"
+      style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--accent)' }}>
+      <span className="break-all">{children}</span>
+      <button onClick={() => { navigator.clipboard.writeText(children); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+        className="no-drag ml-3 shrink-0 cursor-pointer" style={{ color: copied ? 'var(--green)' : 'var(--text-muted)' }}>
+        {copied
+          ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}><polyline points="20 6 9 17 4 12"/></svg>
+          : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        }
+      </button>
+    </div>
+  )
+}
+
+function WeChatSection() {
+  const [checking, setChecking] = useState(false)
+  const [status, setStatus] = useState<{ wechatInstalled: boolean; wechatConnected: boolean; wechatError: string } | null>(null)
+
+  const runCheck = useCallback(async () => {
+    setChecking(true)
+    setStatus(null)
+    try {
+      const res = await window.api.checkStartup()
+      if (res.success && res.data) {
+        setStatus({ wechatInstalled: res.data.wechatInstalled, wechatConnected: res.data.wechatConnected, wechatError: res.data.wechatError })
+      } else {
+        setStatus({ wechatInstalled: false, wechatConnected: false, wechatError: res.error ?? '检测失败' })
+      }
+    } catch (e) {
+      setStatus({ wechatInstalled: false, wechatConnected: false, wechatError: String(e) })
+    } finally {
+      setChecking(false)
+    }
+  }, [])
+
+  useEffect(() => { runCheck() }, [runCheck])
+
+  const installed = status?.wechatInstalled ?? false
+  const connected = status?.wechatConnected ?? false
+
+  return (
+    <div className="space-y-5">
+      <SectionHeader
+        icon={
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ width: 28, height: 28, color: 'var(--text-secondary)' }}>
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        }
+        title="微信数据"
+        description="配置 wechat-cli 以读取本地微信聊天记录"
+      />
+
+      {/* Status */}
+      <Card title="连接状态">
+        <Row label="wechat-cli 已安装">
+          {checking
+            ? <div className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
+            : status
+              ? <div className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+                  style={{ background: installed ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: installed ? 'var(--green)' : 'var(--red)', border: `1px solid ${installed ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                  {installed ? '已安装' : '未安装'}
+                </div>
+              : null
+          }
+        </Row>
+        <Row label="微信数据可读取" last>
+          {checking
+            ? <div className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
+            : status
+              ? <div className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+                  style={{ background: connected ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: connected ? 'var(--green)' : 'var(--red)', border: `1px solid ${connected ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                  {connected ? '正常' : '未就绪'}
+                </div>
+              : null
+          }
+        </Row>
+      </Card>
+
+      {/* Error detail */}
+      {status && !connected && status.wechatError && (
+        <div className="rounded-xl p-3 text-xs font-mono break-all" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--text-muted)' }}>
+          {status.wechatError}
+        </div>
+      )}
+
+      {/* Recheck button */}
+      <button onClick={runCheck} disabled={checking}
+        className="no-drag w-full py-2.5 rounded-xl text-sm font-medium cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+        {checking
+          ? <><div className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />检测中...</>
+          : '重新检测'}
+      </button>
+
+      {/* Setup guide */}
+      <Card title="配置步骤">
+        <div className="px-4 py-3 space-y-4">
+          <div>
+            <p className="text-xs font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>第一步：安装 wechat-cli</p>
+            <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>在终端中运行：</p>
+            <CodeBlock>npm install -g @canghe_ai/wechat-cli</CodeBlock>
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+            <p className="text-xs font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>第二步：授权完整磁盘访问</p>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              系统设置 → 隐私与安全性 → 完整磁盘访问权限<br />
+              添加你使用的终端（Terminal / iTerm2 等）
+            </p>
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+            <p className="text-xs font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>第三步：打开微信并初始化</p>
+            <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>确保微信已登录并运行，在终端执行：</p>
+            <CodeBlock>sudo wechat-cli init</CodeBlock>
+          </div>
+        </div>
+      </Card>
+
+      {/* Troubleshooting */}
+      {status && installed && !connected && (
+        <Card title="常见问题">
+          <div className="px-4 py-3 space-y-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <p>• <strong style={{ color: 'var(--text-secondary)' }}>微信桌面版未运行</strong> → 打开并登录微信后重试</p>
+            <p>• <strong style={{ color: 'var(--text-secondary)' }}>未执行 init</strong> → 终端运行 <code className="px-1 rounded font-mono" style={{ background: 'var(--bg-base)', color: 'var(--accent)' }}>sudo wechat-cli init</code></p>
+            <p>• <strong style={{ color: 'var(--text-secondary)' }}>磁盘访问权限不足</strong> → 系统设置 → 隐私与安全性 → 完整磁盘访问权限</p>
+            <p>• <strong style={{ color: 'var(--text-secondary)' }}>微信版本不兼容</strong> → 请使用 WeChat ≤ 4.1.8.100</p>
+          </div>
+        </Card>
+      )}
+    </div>
+  )
+}
+
 function DataSection({ onClear, clearing }: { onClear: () => void; clearing: boolean }) {
   return (
     <div className="space-y-5">
@@ -733,6 +878,7 @@ export default function SettingsPage() {
         <div className="drag-region h-8 shrink-0" />
         <div className="max-w-[520px] mx-auto px-8 pb-10">
           {section === 'general' && <GeneralSection />}
+          {section === 'wechat' && <WeChatSection />}
           {section === 'appearance' && (
             <AppearanceSection
               mode={mode}

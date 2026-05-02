@@ -130,7 +130,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
           </div>
           <div>
             <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>微信聊天记录</div>
-            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>基于 wechat-cli 读取本地数据</div>
+            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>通过 @canghe_ai/wechat-cli 读取本地数据</div>
           </div>
         </div>
         <div className="flex items-center gap-3 text-left rounded-xl p-3" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
@@ -204,27 +204,32 @@ function StepWechat({
 
       {!loading && !installed && (
         <div className="rounded-2xl p-4 mb-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-          <p className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>安装 wechat-cli</p>
-          <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>在终端中运行以下命令：</p>
-          <Code>npm install -g wechat-cli</Code>
-          <p className="text-xs mt-3 mb-1" style={{ color: 'var(--text-muted)' }}>安装后，登录你的微信账号：</p>
-          <Code>wechat-cli login</Code>
+          <p className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>第一步：安装 wechat-cli</p>
+          <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>在终端中运行：</p>
+          <Code>npm install -g @canghe_ai/wechat-cli</Code>
+          <p className="text-sm font-semibold mt-4 mb-2" style={{ color: 'var(--text-primary)' }}>第二步：授权完整磁盘访问</p>
+          <p className="text-xs mb-2 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            系统设置 → 隐私与安全性 → 完整磁盘访问权限 → 添加你使用的终端（Terminal / iTerm2）
+          </p>
+          <p className="text-sm font-semibold mt-4 mb-2" style={{ color: 'var(--text-primary)' }}>第三步：打开微信并初始化</p>
+          <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>确保微信桌面版已登录并在运行，然后执行：</p>
+          <Code>sudo wechat-cli init</Code>
           <p className="text-xs mt-3 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            完成后点击「重新检测」验证安装结果
+            完成后点击「重新检测」验证
           </p>
         </div>
       )}
 
       {!loading && installed && !connected && (
         <div className="rounded-2xl p-4 mb-4" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
-          <p className="text-sm font-semibold mb-2" style={{ color: 'var(--amber)' }}>需要登录微信</p>
+          <p className="text-sm font-semibold mb-2" style={{ color: 'var(--amber)' }}>wechat-cli 未就绪</p>
           <p className="text-xs mb-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            wechat-cli 已安装，但无法读取数据。可能原因：
+            已安装但无法读取数据，请逐项排查：
           </p>
-          <ul className="text-xs space-y-1 mb-3" style={{ color: 'var(--text-muted)' }}>
-            <li>• 未登录微信：运行 <code className="font-mono px-1 rounded" style={{ background: 'var(--bg-base)', color: 'var(--accent)' }}>wechat-cli login</code></li>
-            <li>• 微信未在后台运行：请打开电脑微信</li>
-            <li>• 权限问题：需要授权磁盘访问</li>
+          <ul className="text-xs space-y-1.5 mb-3" style={{ color: 'var(--text-muted)' }}>
+            <li>• 微信桌面版未运行 → 请先打开并登录微信</li>
+            <li>• 尚未初始化 → 运行 <code className="font-mono px-1 rounded" style={{ background: 'var(--bg-base)', color: 'var(--accent)' }}>sudo wechat-cli init</code></li>
+            <li>• 终端缺少磁盘权限 → 系统设置 → 隐私与安全性 → 完整磁盘访问权限</li>
           </ul>
           {status?.wechatError && (
             <div className="text-xs font-mono rounded-lg p-2 mt-1" style={{ background: 'var(--bg-base)', color: 'var(--text-muted)', wordBreak: 'break-all' }}>
@@ -465,8 +470,16 @@ export default function OnboardingWizard({ onComplete }: Props) {
 
   const runCheck = useCallback(async () => {
     setStatus(null)
-    const res = await window.api.checkStartup()
-    if (res.success && res.data) setStatus(res.data)
+    try {
+      const res = await window.api.checkStartup()
+      if (res.success && res.data) {
+        setStatus(res.data)
+      } else {
+        setStatus({ wechatInstalled: false, wechatConnected: false, wechatError: res.error ?? '检测失败', aiConfigured: false, onboardingDone: false })
+      }
+    } catch (e) {
+      setStatus({ wechatInstalled: false, wechatConnected: false, wechatError: String(e), aiConfigured: false, onboardingDone: false })
+    }
   }, [])
 
   useEffect(() => {

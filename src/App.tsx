@@ -66,9 +66,9 @@ export default function App() {
         setAppState('onboarding')
         return
       }
-      const { onboardingDone, wechatConnected, aiConfigured } = res.data
-      // Show onboarding if: first launch OR wechat not working AND AI not configured
-      const needsSetup = !onboardingDone || (!wechatConnected && !aiConfigured)
+      const { onboardingDone, wechatConnected } = res.data
+      // Show onboarding on first launch, or if wechat isn't working yet
+      const needsSetup = !onboardingDone || !wechatConnected
       setAppState(needsSetup ? 'onboarding' : 'ready')
     }).catch(() => {
       // If check fails, proceed to app (don't block user)

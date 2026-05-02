@@ -3,6 +3,7 @@ import path from 'path'
 import { execSync } from 'child_process'
 import { is } from '@electron-toolkit/utils'
 import { getDb, getSetting, setSetting, getSecureSetting, setSecureSetting } from './db'
+import { getShellEnv } from './shell-env'
 import {
   fetchAndStoreSessions,
   fetchAndStoreMessages,
@@ -51,7 +52,7 @@ function smartPoll(): void {
     const db = getDb()
     // 1. Get latest session list (fast - just reads session table)
     const raw = execSync('wechat-cli sessions --limit 100', {
-      encoding: 'utf8', maxBuffer: 2 * 1024 * 1024
+      encoding: 'utf8', maxBuffer: 2 * 1024 * 1024, env: getShellEnv()
     })
     const sessions: Array<{ chat: string; username: string; is_group: boolean; unread: number; last_message: string; msg_type: string; sender: string; timestamp: number; time: string }> = JSON.parse(raw)
 
@@ -263,50 +264,54 @@ ipcMain.handle('ai-chat', async (_, messages: { role: string; content: string }[
 
 // ---- Startup check ----
 ipcMain.handle('check-startup', async () => {
-  // 1. wechat-cli installed?
-  let wechatInstalled = false
   try {
-    execSync('wechat-cli --version', { encoding: 'utf8', timeout: 5000 })
-    wechatInstalled = true
-  } catch {
+    // 1. wechat-cli installed? (package: @canghe_ai/wechat-cli)
+    let wechatInstalled = false
     try {
-      execSync('npx wechat-cli --version', { encoding: 'utf8', timeout: 8000 })
+      execSync('wechat-cli --version', { encoding: 'utf8', timeout: 5000, env: getShellEnv() })
       wechatInstalled = true
-    } catch { /* not installed */ }
-  }
-
-  // 2. wechat-cli connected (can load sessions)?
-  let wechatConnected = false
-  let wechatError = ''
-  if (wechatInstalled) {
-    try {
-      const raw = execSync('wechat-cli sessions --limit 1', {
-        encoding: 'utf8', timeout: 10000, maxBuffer: 1 * 1024 * 1024
-      })
-      const data = JSON.parse(raw)
-      wechatConnected = Array.isArray(data) && data.length >= 0
-    } catch (e) {
-      wechatError = String(e).slice(0, 200)
+    } catch {
+      try {
+        execSync('npx @canghe_ai/wechat-cli --version', { encoding: 'utf8', timeout: 8000, env: getShellEnv() })
+        wechatInstalled = true
+      } catch { /* not installed */ }
     }
-  }
 
-  // 3. AI configured?
-  const aiKey = getSetting('ai_api_key') ?? ''
-  const aiModel = getSetting('ai_model') ?? ''
-  const aiConfigured = aiKey.length > 0 && aiModel.length > 0
-
-  // 4. First launch flag
-  const onboardingDone = (getSetting('onboarding_complete') ?? '') === '1'
-
-  return {
-    success: true,
-    data: {
-      wechatInstalled,
-      wechatConnected,
-      wechatError,
-      aiConfigured,
-      onboardingDone,
+    // 2. wechat-cli connected (can load sessions)?
+    let wechatConnected = false
+    let wechatError = ''
+    if (wechatInstalled) {
+      try {
+        const raw = execSync('wechat-cli sessions --limit 1', {
+          encoding: 'utf8', timeout: 10000, maxBuffer: 1 * 1024 * 1024, env: getShellEnv()
+        })
+        const data = JSON.parse(raw)
+        wechatConnected = Array.isArray(data) && data.length >= 0
+      } catch (e) {
+        wechatError = String(e).slice(0, 200)
+      }
     }
+
+    // 3. AI configured?
+    const aiKey = getSecureSetting('ai_api_key') ?? ''
+    const aiModel = getSetting('ai_model') ?? ''
+    const aiConfigured = aiKey.length > 0 && aiModel.length > 0
+
+    // 4. First launch flag
+    const onboardingDone = (getSetting('onboarding_complete') ?? '') === '1'
+
+    return {
+      success: true,
+      data: {
+        wechatInstalled,
+        wechatConnected,
+        wechatError,
+        aiConfigured,
+        onboardingDone,
+      }
+    }
+  } catch (e) {
+    return { success: false, error: String(e) }
   }
 })
 

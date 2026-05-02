@@ -7,7 +7,8 @@ let db: Database.Database
 
 export function getDb(): Database.Database {
   if (!db) {
-    const dbDir = path.join(app.getPath('userData'), 'welife')
+    const dbSubdir = app.isPackaged ? 'welife' : 'welife-dev'
+    const dbDir = path.join(app.getPath('userData'), dbSubdir)
     if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true })
     db = new Database(path.join(dbDir, 'welife.db'))
     db.pragma('journal_mode = WAL')
@@ -90,13 +91,13 @@ export function setSetting(key: string, value: string): void {
   getDb().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value)
 }
 
-// Encrypted variants for sensitive values (API keys).
-// Uses Electron safeStorage → macOS Keychain / Windows DPAPI.
-// Stored in DB as "enc:<base64>". Falls back to plaintext for migration.
+// Secure setting helpers — stored as plaintext in SQLite (local-only app).
+// Backward-compatible: if a value was previously encrypted with safeStorage ("enc:" prefix),
+// we try to decrypt it once; on failure the user will need to re-enter the key.
 export function getSecureSetting(key: string): string | null {
   const raw = getSetting(key)
   if (!raw) return null
-  if (!raw.startsWith('enc:')) return raw  // legacy plaintext, still readable
+  if (!raw.startsWith('enc:')) return raw
   try {
     const buf = Buffer.from(raw.slice(4), 'base64')
     return safeStorage.decryptString(buf)
@@ -106,7 +107,5 @@ export function getSecureSetting(key: string): string | null {
 }
 
 export function setSecureSetting(key: string, value: string): void {
-  if (!value) { setSetting(key, ''); return }
-  const encrypted = safeStorage.encryptString(value)
-  setSetting(key, 'enc:' + encrypted.toString('base64'))
+  setSetting(key, value)
 }
